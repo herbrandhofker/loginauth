@@ -1,0 +1,26 @@
+<footer class="bg-gray-800 text-white py-6 mt-8">
+  <div class="container mx-auto px-4">
+    <div class="flex flex-col md:flex-row justify-between items-center">
+      <div class="mb-4 md:mb-0">
+        <h3 class="text-xl font-bold mb-2">{{.CompanyName}}</h3>
+        <p class="text-gray-300">{{.CompanySlogan}}</p>
+      </div>
+
+      <div>
+        <h4 class="text-lg font-semibold mb-2 text-center">Contact</h4>
+        <a
+          href="mailto:{{.CompanyEmail}}"
+          class="text-gray-300 hover:text-blue-300"
+        >
+          {{.CompanyEmail}}
+        </a>
+      </div>
+    </div>
+
+    <div class="border-t border-gray-700 mt-6 pt-4 text-center text-gray-400">
+      <p>
+        &copy; {{.CurrentYear}} {{.CompanyName}}. Alle rechten voorbehouden.
+      </p>
+    </div>
+  </div>
+</footer>

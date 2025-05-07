@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 
@@ -88,7 +90,75 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	http.ServeFile(w, r, "templates/index.html")
+
+	// Haal alle bedrijfsgegevens op uit environment
+	companyName := getEnvWithDefault("COMPANY_NAME", "LoginAuth")
+	companySlogan := getEnvWithDefault("COMPANY_SLOGAN", "A simple authentication system")
+	companyVAT := getEnvWithDefault("COMPANY_VAT", "")
+	companyAddress := getEnvWithDefault("COMPANY_ADDRESS", "")
+	companyZip := getEnvWithDefault("COMPANY_ZIP", "")
+	companyCity := getEnvWithDefault("COMPANY_CITY", "")
+	companyPhone := getEnvWithDefault("COMPANY_PHONE", "")
+	companyEmail := getEnvWithDefault("COMPANY_EMAIL", "")
+
+	// Bereid template data voor
+	data := struct {
+		CompanyName    string
+		CompanySlogan  string
+		CompanyVAT     string
+		CompanyAddress string
+		CompanyZip     string
+		CompanyCity    string
+		CompanyPhone   string
+		CompanyEmail   string
+		CurrentYear    int
+	}{
+		CompanyName:    companyName,
+		CompanySlogan:  companySlogan,
+		CompanyVAT:     companyVAT,
+		CompanyAddress: companyAddress,
+		CompanyZip:     companyZip,
+		CompanyCity:    companyCity,
+		CompanyPhone:   companyPhone,
+		CompanyEmail:   companyEmail,
+		CurrentYear:    time.Now().Year(),
+	}
+
+	// Parse en render template
+	tmpl := template.New("index.html")
+
+	// Parse de templates en geef de footer een naam
+	tmpl, err := tmpl.ParseFiles(
+		"templates/index.html",
+		"templates/partials/footer.html",
+	)
+
+	if err != nil {
+		http.Error(w, "Error loading template: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Definieer de footer met een naam die je kunt gebruiken
+	_, err = tmpl.New("footer").ParseFiles("templates/partials/footer.html")
+	if err != nil {
+		http.Error(w, "Error loading footer template: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = tmpl.Execute(w, data)
+	if err != nil {
+		http.Error(w, "Error rendering template: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+// Helper functie voor environment variabelen met default waarde
+func getEnvWithDefault(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
 }
 
 func dashboardHandler(w http.ResponseWriter, r *http.Request) {
