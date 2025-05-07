@@ -1,1 +1,45 @@
+# Environment variables
 .env
+.env.local
+.env.*
+!.env.example
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/tmp
+
+# Go specific
+*.test
+*.out
+go.work
+
+# Air temporary directory
+/tmp
+
+# Node.js dependencies
+/node_modules
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+package-lock.json
+
+# TailwindCSS
+/static/css/output.css
+
+# Output of the go coverage tool
+*.coverprofile
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+.DS_Store
+
+# Log files
+*.log
