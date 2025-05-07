@@ -1,6 +1,6 @@
 # LoginAuth Project
 
-A web application built with Golang, HTMX, PostgreSQL, and TailwindCSS.
+A web application built with Golang, HTMX, PostgreSQL, and TailwindCSS featuring user authentication with both traditional login and Google OAuth.
 
 ## Tech Stack
 
@@ -8,6 +8,19 @@ A web application built with Golang, HTMX, PostgreSQL, and TailwindCSS.
 - **Frontend Interactivity**: [HTMX](https://htmx.org/)
 - **Database**: [PostgreSQL](https://www.postgresql.org/)
 - **CSS Framework**: [TailwindCSS](https://tailwindcss.com/)
+- **Authentication**: Email/Password + Google OAuth
+- **Email Service**: SMTP for account verification and password resets
+
+## Features
+
+- User registration with email verification
+- Email and password login
+- Google OAuth integration
+- Session management
+- Password reset functionality
+- Protected routes
+- Modern responsive UI with TailwindCSS
+- HTMX for interactive experiences without writing JavaScript
 
 ## Project Setup
 
