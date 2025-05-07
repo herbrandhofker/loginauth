@@ -17,9 +17,15 @@ A web application built with Golang, HTMX, PostgreSQL, and TailwindCSS.
 - PostgreSQL
 - Node.js and NPM
 
-### Environment Variables
+### Environment Configuration
 
-The project uses the following environment variables (defined in `.env`):
+This project uses environment variables for configuration. These should be stored in a `.env` file in the project root.
+
+1. Copy the example environment file:
+
+```bash
+cp .env.example .env
+```
 
 ## Development with Hot Reload
 
