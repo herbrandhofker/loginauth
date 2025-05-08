@@ -39,7 +39,8 @@ func main() {
 	}
 
 	// Initialize services
-	authService := auth.NewAuthService(db)
+	emailService := auth.NewEmailService()
+	authService := auth.NewAuthService(db, emailService)
 	googleProvider := oauth.NewGoogleProvider(db, authService)
 	authHandler := auth.NewAuthHandler(authService, googleProvider)
 

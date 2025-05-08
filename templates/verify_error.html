@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verificatie Mislukt - {{.CompanyName}}</title>
+    <link rel="stylesheet" href="/static/css/output.css" />
+  </head>
+  <body class="bg-gray-100 min-h-screen flex items-center justify-center">
+    <div class="bg-white p-8 rounded shadow-md max-w-md w-full">
+      <div class="text-center mb-8">
+        <div class="bg-red-100 text-red-800 rounded-full p-3 inline-flex mb-4">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-6 w-6"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </div>
+        <h1 class="text-2xl font-bold text-gray-800">Verificatie Mislukt</h1>
+        <p class="text-gray-600 mt-2">
+          Er is een probleem opgetreden bij het verifiëren van je email.
+        </p>
+      </div>
+
+      <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
+        <p class="text-red-700">{{.Error}}</p>
+      </div>
+
+      <p class="text-gray-700 mb-6">
+        Je kunt opnieuw een verificatie email aanvragen via onderstaande link of
+        contact opnemen met onze klantenservice.
+      </p>
+
+      <div class="flex justify-center space-x-4">
+        <a
+          href="/login"
+          class="bg-gray-500 hover:bg-gray-600 text-white font-semibold px-6 py-3 rounded"
+        >
+          Inloggen
+        </a>
+        <a
+          href="/resend-verification"
+          class="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-3 rounded"
+        >
+          Verificatie email opnieuw versturen
+        </a>
+      </div>
+    </div>
+
+    {{template "footer.html" .}}
+  </body>
+</html>

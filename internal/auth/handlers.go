@@ -239,18 +239,52 @@ func (h *AuthHandler) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) VerifyEmailHandler(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		http.Error(w, "No token provided", http.StatusBadRequest)
+		http.Error(w, "Missing verification token", http.StatusBadRequest)
 		return
 	}
 
 	err := h.AuthService.VerifyEmail(token)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		// Template data met foutmelding
+		data := map[string]interface{}{
+			"CompanyName":   h.getEnvDefault("COMPANY_NAME", "LoginAuth"),
+			"CompanySlogan": h.getEnvDefault("COMPANY_SLOGAN", "A simple authentication system"),
+			"CompanyEmail":  h.getEnvDefault("COMPANY_EMAIL", ""),
+			"CurrentYear":   time.Now().Year(),
+			"Error":         err.Error(),
+		}
+
+		tmpl, err := template.ParseFiles(
+			"templates/verify_error.html",
+			"templates/partials/footer.html",
+		)
+		if err != nil {
+			http.Error(w, "Error loading template: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		tmpl.Execute(w, data)
 		return
 	}
 
-	// Render verification success page
-	http.ServeFile(w, r, "templates/verify-email.html")
+	// Success template
+	data := map[string]interface{}{
+		"CompanyName":   h.getEnvDefault("COMPANY_NAME", "LoginAuth"),
+		"CompanySlogan": h.getEnvDefault("COMPANY_SLOGAN", "A simple authentication system"),
+		"CompanyEmail":  h.getEnvDefault("COMPANY_EMAIL", ""),
+		"CurrentYear":   time.Now().Year(),
+	}
+
+	tmpl, err := template.ParseFiles(
+		"templates/verify_success.html",
+		"templates/partials/footer.html",
+	)
+	if err != nil {
+		http.Error(w, "Error loading template: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	tmpl.Execute(w, data)
 }
 
 // ForgotPasswordHandler handles password reset requests

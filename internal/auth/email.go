@@ -1,123 +1,193 @@
 package auth
 
 import (
+	"crypto/tls"
 	"fmt"
+	"log"
 	"net/smtp"
 	"os"
 )
 
+// EmailService voor het versturen van emails
 type EmailService struct {
-	host     string
-	port     string
-	username string
-	password string
-	from     string
-	appURL   string
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUsername string
+	SMTPPassword string
+	FromEmail    string
 }
 
+// NewEmailService maakt een nieuwe email service aan
 func NewEmailService() *EmailService {
+	// Log belangrijke configuratiedetails
+	log.Println("Initializing email service...")
+	log.Printf("SMTP Host: %s", os.Getenv("SMTP_HOST"))
+	log.Printf("SMTP Port: %s", os.Getenv("SMTP_PORT"))
+	log.Printf("SMTP User: %s", os.Getenv("SMTP_USER"))
+	log.Printf("Using password: %t", os.Getenv("SMTP_PASSWORD") != "")
+
 	return &EmailService{
-		host:     os.Getenv("EMAIL_HOST"),
-		port:     os.Getenv("EMAIL_PORT"),
-		username: os.Getenv("EMAIL_USER"),
-		password: os.Getenv("EMAIL_PASSWORD"),
-		from:     os.Getenv("EMAIL_FROM"),
-		appURL:   os.Getenv("APP_URL"),
+		SMTPHost:     os.Getenv("SMTP_HOST"),
+		SMTPPort:     os.Getenv("SMTP_PORT"),
+		SMTPUsername: os.Getenv("SMTP_USER"), // Let op: gebruikt SMTP_USER, niet SMTP_USERNAME
+		SMTPPassword: os.Getenv("SMTP_PASSWORD"),
+		FromEmail:    os.Getenv("EMAIL_FROM"),
 	}
 }
 
-// SendVerificationEmail sends an email with a verification link
-func (s *EmailService) SendVerificationEmail(to, token string) error {
-	subject := "Verify your account"
-	verificationURL := fmt.Sprintf("%s/verify-email?token=%s", s.appURL, token)
+// SendVerificationEmail stuurt een email met een verificatielink
+func (s *EmailService) SendVerificationEmail(toEmail, username, token string) error {
+	subject := "Bevestig je email adres"
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8082"
+	}
 
+	// Maak verificatie link
+	verificationLink := fmt.Sprintf("%s/verify-email?token=%s", baseURL, token)
+
+	// Opbouwen van eenvoudige HTML email
 	htmlBody := fmt.Sprintf(`
     <html>
-    <head>
-        <style>
-            .container { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
-            .button { background-color: #4CAF50; border: none; color: white; padding: 15px 32px; 
-                      text-align: center; text-decoration: none; display: inline-block; font-size: 16px; 
-                      margin: 4px 2px; cursor: pointer; border-radius: 4px; }
-            .footer { font-size: 12px; color: #777; margin-top: 30px; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h2>Welcome to LoginAuth!</h2>
-            <p>Thank you for registering. Please verify your email address by clicking the button below:</p>
-            <p><a href="%s" class="button">Verify Email Address</a></p>
-            <p>Or copy and paste this link in your browser:</p>
-            <p>%s</p>
-            <div class="footer">
-                <p>If you did not create this account, please ignore this email.</p>
-            </div>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2>Email verificatie voor %s</h2>
+            <p>Hallo %s,</p>
+            <p>Bedankt voor je registratie. Klik op de onderstaande link om je email adres te bevestigen:</p>
+            <p><a href="%s" style="display: inline-block; background-color: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Email bevestigen</a></p>
+            <p>Of gebruik deze link: <a href="%s">%s</a></p>
+            <p>Deze link verloopt na 24 uur.</p>
+            <p>Met vriendelijke groet,<br>Het team van %s</p>
         </div>
     </body>
     </html>
-    `, verificationURL, verificationURL)
+    `, os.Getenv("COMPANY_NAME"), username, verificationLink, verificationLink, verificationLink, os.Getenv("COMPANY_NAME"))
 
-	return s.sendEmail(to, subject, htmlBody)
+	return s.sendEmail(toEmail, subject, htmlBody)
+}
+
+// sendEmail verstuurt een email met verbeterde error handling
+func (s *EmailService) sendEmail(to, subject, body string) error {
+	// Extra debugging
+	log.Printf("Sending email to: %s", to)
+	log.Printf("Using SMTP server: %s:%s", s.SMTPHost, s.SMTPPort)
+	log.Printf("Authenticating with username: %s", s.SMTPUsername)
+
+	// Als er geen SMTP configuratie is, log dan de mail voor debug
+	if s.SMTPHost == "" || s.SMTPPassword == "" {
+		log.Printf("SMTP not configured. Would send email with subject: %s", subject)
+		return nil
+	}
+
+	// Freedom.nl specifieke setup
+	addr := fmt.Sprintf("%s:%s", s.SMTPHost, s.SMTPPort)
+
+	// Verbeterde SMTP met TLS
+	// Create TLS config
+	tlsconfig := &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         s.SMTPHost,
+	}
+
+	// Connect to SMTP server
+	c, err := smtp.Dial(addr)
+	if err != nil {
+		return fmt.Errorf("SMTP dial error: %w", err)
+	}
+	defer c.Close()
+
+	// Start TLS
+	if err = c.StartTLS(tlsconfig); err != nil {
+		log.Printf("TLS start failed, trying without TLS: %v", err)
+		// Als TLS mislukt, probeer zonder TLS (niet ideaal maar kan werken voor debug)
+		c.Close()
+		c, err = smtp.Dial(addr)
+		if err != nil {
+			return fmt.Errorf("second SMTP dial error: %w", err)
+		}
+		defer c.Close()
+	}
+
+	// Authenticate with SMTP server
+	auth := smtp.PlainAuth("", s.SMTPUsername, s.SMTPPassword, s.SMTPHost)
+	if err = c.Auth(auth); err != nil {
+		// Als authenticatie mislukt, probeer een andere methode voor Freedom.nl
+		log.Printf("Standard authentication failed: %v", err)
+		log.Printf("Trying alternative authentication...")
+
+		// Probeer direct inloggen zonder TLS eerst
+		c.Close()
+		c, err = smtp.Dial(addr)
+		if err != nil {
+			return fmt.Errorf("alternative SMTP dial error: %w", err)
+		}
+		defer c.Close()
+
+		auth := smtp.PlainAuth("", s.SMTPUsername, s.SMTPPassword, s.SMTPHost)
+		if err = c.Auth(auth); err != nil {
+			return fmt.Errorf("all authentication methods failed: %w", err)
+		}
+	}
+
+	// Set sender and recipient
+	if err = c.Mail(s.FromEmail); err != nil {
+		return fmt.Errorf("failed to set sender: %w", err)
+	}
+	if err = c.Rcpt(to); err != nil {
+		return fmt.Errorf("failed to set recipient: %w", err)
+	}
+
+	// Send email
+	w, err := c.Data()
+	if err != nil {
+		return fmt.Errorf("failed to open email data writer: %w", err)
+	}
+	defer w.Close()
+
+	// Compose headers and body
+	msg := fmt.Sprintf("From: %s\r\n"+
+		"To: %s\r\n"+
+		"Subject: %s\r\n"+
+		"MIME-Version: 1.0\r\n"+
+		"Content-Type: text/html; charset=UTF-8\r\n"+
+		"\r\n"+
+		"%s", s.FromEmail, to, subject, body)
+
+	if _, err = w.Write([]byte(msg)); err != nil {
+		return fmt.Errorf("failed to write email: %w", err)
+	}
+
+	log.Println("Email sent successfully!")
+	return nil
 }
 
 // SendPasswordResetEmail sends an email with password reset link
-func (s *EmailService) SendPasswordResetEmail(to, token string) error {
-	subject := "Reset your password"
-	resetURL := fmt.Sprintf("%s/reset-password?token=%s", s.appURL, token)
+func (s *EmailService) SendPasswordResetEmail(toEmail, username, token string) error {
+	subject := "Wachtwoord reset verzoek"
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8082"
+	}
 
+	// Create reset link
+	resetLink := fmt.Sprintf("%s/reset-password?token=%s", baseURL, token)
+
+	// Build HTML email
 	htmlBody := fmt.Sprintf(`
     <html>
-    <head>
-        <style>
-            .container { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
-            .button { background-color: #2196F3; border: none; color: white; padding: 15px 32px; 
-                      text-align: center; text-decoration: none; display: inline-block; font-size: 16px; 
-                      margin: 4px 2px; cursor: pointer; border-radius: 4px; }
-            .footer { font-size: 12px; color: #777; margin-top: 30px; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h2>Password Reset Request</h2>
-            <p>We received a request to reset your password. Click the button below to create a new password:</p>
-            <p><a href="%s" class="button">Reset Password</a></p>
-            <p>Or copy and paste this link in your browser:</p>
-            <p>%s</p>
-            <div class="footer">
-                <p>If you did not request a password reset, please ignore this email.</p>
-                <p>This link will expire in 1 hour.</p>
-            </div>
+    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2>Wachtwoord reset voor %s</h2>
+            <p>Hallo %s,</p>
+            <p>We hebben een verzoek ontvangen om je wachtwoord te resetten. Klik op de onderstaande link om een nieuw wachtwoord in te stellen:</p>
+            <p><a href="%s" style="display: inline-block; background-color: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Wachtwoord resetten</a></p>
+            <p>Of gebruik deze link: <a href="%s">%s</a></p>
+            <p>Deze link verloopt na 24 uur. Als je geen wachtwoord reset hebt aangevraagd, kun je deze email negeren.</p>
+            <p>Met vriendelijke groet,<br>Het team van %s</p>
         </div>
     </body>
     </html>
-    `, resetURL, resetURL)
+    `, os.Getenv("COMPANY_NAME"), username, resetLink, resetLink, resetLink, os.Getenv("COMPANY_NAME"))
 
-	return s.sendEmail(to, subject, htmlBody)
-}
-
-// sendEmail sends an HTML email
-func (s *EmailService) sendEmail(to, subject, htmlBody string) error {
-	addr := fmt.Sprintf("%s:%s", s.host, s.port)
-	auth := smtp.PlainAuth("", s.username, s.password, s.host)
-
-	headers := make(map[string]string)
-	headers["From"] = s.from
-	headers["To"] = to
-	headers["Subject"] = subject
-	headers["MIME-Version"] = "1.0"
-	headers["Content-Type"] = "text/html; charset=UTF-8"
-
-	message := ""
-	for key, value := range headers {
-		message += fmt.Sprintf("%s: %s\r\n", key, value)
-	}
-	message += "\r\n" + htmlBody
-
-	return smtp.SendMail(
-		addr,
-		auth,
-		s.from,
-		[]string{to},
-		[]byte(message),
-	)
+	return s.sendEmail(toEmail, subject, htmlBody)
 }

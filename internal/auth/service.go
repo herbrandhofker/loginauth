@@ -6,6 +6,7 @@ import (
 	"encoding/base64" // Voor token encoding
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,10 +20,11 @@ type AuthService struct {
 	EmailService *EmailService
 }
 
-func NewAuthService(db *sql.DB) *AuthService {
+// Wijzig dit in service.go
+func NewAuthService(db *sql.DB, emailService *EmailService) *AuthService {
 	return &AuthService{
 		DB:           db,
-		EmailService: NewEmailService(),
+		EmailService: emailService,
 	}
 }
 
@@ -66,6 +68,22 @@ func (s *AuthService) RegisterUser(username, email, password string) error {
 	// Commit de transactie
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("transaction commit failed: %w", err)
+	}
+
+	// Aan het einde, na succesvolle registratie:
+	if s.EmailService != nil {
+		// Maak een verificatie token aan
+		token, err := s.CreateVerificationToken(email)
+		if err != nil {
+			// Log de fout maar laat de registratie slagen
+			log.Printf("Failed to create verification token: %v", err)
+		} else {
+			// Stuur verificatie email
+			err = s.EmailService.SendVerificationEmail(email, username, token)
+			if err != nil {
+				log.Printf("Failed to send verification email: %v", err)
+			}
+		}
 	}
 
 	return nil
@@ -210,9 +228,10 @@ func (s *AuthService) RequestPasswordReset(email string) error {
 	// Find user by email
 	var userID int64
 	var isVerified bool
+	var username string // Voeg username toe
 	err := s.DB.QueryRow(`
-        SELECT id, is_verified FROM users WHERE email = $1
-    `, email).Scan(&userID, &isVerified)
+        SELECT id, is_verified, username FROM users WHERE email = $1
+    `, email).Scan(&userID, &isVerified, &username) // Scan nu ook username
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -249,7 +268,7 @@ func (s *AuthService) RequestPasswordReset(email string) error {
 	}
 
 	// Send password reset email
-	return s.EmailService.SendPasswordResetEmail(email, token)
+	return s.EmailService.SendPasswordResetEmail(email, username, token) // Nu met username
 }
 
 // ResetPassword changes a user's password using a reset token
@@ -297,4 +316,52 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
     `, token)
 
 	return err
+}
+
+// CreateVerificationToken maakt een nieuw verificatie token aan voor een gebruiker
+func (s *AuthService) CreateVerificationToken(email string) (string, error) {
+	// Haal user ID op
+	var userID int64
+	var username string
+
+	err := s.DB.QueryRow("SELECT id, username FROM users WHERE email = $1", email).Scan(&userID, &username)
+	if err != nil {
+		return "", fmt.Errorf("user not found: %w", err)
+	}
+
+	// Begin een transactie
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return "", fmt.Errorf("could not begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Genereer een random token
+	token := generateRandomToken()
+
+	// Bereken vervaldatum (24 uur vanaf nu)
+	expiresAt := time.Now().Add(24 * time.Hour)
+
+	// Verwijder eventueel eerdere tokens voor deze gebruiker
+	_, err = tx.Exec("DELETE FROM verification_tokens WHERE user_id = $1", userID)
+	if err != nil {
+		return "", fmt.Errorf("failed to remove old tokens: %w", err)
+	}
+
+	// Sla het nieuwe token op
+	_, err = tx.Exec(
+		"INSERT INTO verification_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)",
+		userID, token, expiresAt,
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to store verification token: %w", err)
+	}
+
+	// Commit de transactie
+	err = tx.Commit()
+	if err != nil {
+		return "", fmt.Errorf("could not commit transaction: %w", err)
+	}
+
+	return token, nil
 }
