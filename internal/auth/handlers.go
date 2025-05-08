@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-	"os" // Nieuw voor os.Getenv
+	"net/url" // Nieuw voor url.QueryEscape
+	"os"      // Nieuw voor os.Getenv
 	"time"
 
 	"loginauth/internal/interfaces"
@@ -52,9 +53,11 @@ func (h *AuthHandler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Error rendering template: "+err.Error(), http.StatusInternalServerError)
 		}
 	} else if r.Method == http.MethodPost {
+		fmt.Println("Processing POST register")
 		// Parse formulierdata
 		err := r.ParseForm()
 		if err != nil {
+			fmt.Printf("Form parse error: %v\n", err)
 			h.renderError(w, r, "Ongeldige formuliergegevens", http.StatusBadRequest)
 			return
 		}
@@ -63,34 +66,47 @@ func (h *AuthHandler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		username := r.FormValue("username")
 		email := r.FormValue("email")
 		password := r.FormValue("password")
-		confirmPassword := r.FormValue("confirm_password")
 
-		fmt.Printf("Registratie poging: username=%s, email=%s\n", username, email)
+		fmt.Printf("Form values: username=%s, email=%s, password=[HIDDEN]\n", username, email)
 
-		// Valideer invoer
-		if username == "" || email == "" || password == "" || confirmPassword == "" {
+		// Valideer invoer (alleen op lege velden, niet meer op matching passwords)
+		if username == "" || email == "" || password == "" {
+			fmt.Println("Validation failed: empty fields")
 			h.renderError(w, r, "Alle velden zijn verplicht", http.StatusBadRequest)
 			return
 		}
 
-		// Controleer of wachtwoorden overeenkomen
-		if password != confirmPassword {
-			h.renderError(w, r, "Wachtwoorden komen niet overeen", http.StatusBadRequest)
-			return
-		}
-
 		// Poging om gebruiker te registreren
+		fmt.Println("Attempting to register user")
 		err = h.AuthService.RegisterUser(username, email, password)
 		if err != nil {
-			// Gedetailleerde foutafhandeling
-			errorMsg := "Registratie mislukt: " + err.Error()
-			fmt.Println(errorMsg) // Log de fout ook naar de console
-			h.renderError(w, r, errorMsg, http.StatusInternalServerError)
+			fmt.Printf("Registration failed: %v\n", err)
+
+			// Check voor specifieke fouten
+			if err.Error() == "email already exists" {
+				h.renderError(w, r, "Dit e-mailadres is al geregistreerd", http.StatusConflict)
+				return
+			}
+
+			h.renderError(w, r, "Registratie mislukt: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
 		// Geslaagde registratie - redirect
-		http.Redirect(w, r, "/login?registered=true", http.StatusSeeOther)
+		fmt.Println("Registration successful, redirecting to login")
+
+		// URL met email coderen voor veilig doorgeven
+		emailParam := url.QueryEscape(email)
+
+		// Voor HTMX requests
+		if r.Header.Get("HX-Request") == "true" {
+			w.Header().Set("HX-Redirect", "/login?registered=true&email="+emailParam)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Voor reguliere form submits
+		http.Redirect(w, r, "/login?registered=true&email="+emailParam, http.StatusSeeOther)
 	} else {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -106,6 +122,7 @@ func (h *AuthHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			"CompanyEmail":  h.getEnvDefault("COMPANY_EMAIL", ""),
 			"CurrentYear":   time.Now().Year(),
 			"Registered":    r.URL.Query().Get("registered") == "true",
+			"Email":         r.URL.Query().Get("email"), // Haal email uit URL params
 		}
 
 		tmpl, err := template.ParseFiles(
@@ -326,45 +343,54 @@ func (h *AuthHandler) getEnvDefault(key, defaultValue string) string {
 	return value
 }
 
-// renderError verplaatsen naar een methode van AuthHandler
+// renderError is een methode van AuthHandler voor consistente foutafhandeling
 func (h *AuthHandler) renderError(w http.ResponseWriter, r *http.Request, message string, statusCode int) {
-	fmt.Println("Error:", message) // Log naar console
+	fmt.Printf("Error: %s (status: %d)\n", message, statusCode)
 
 	isHtmx := r.Header.Get("HX-Request") == "true"
 
 	if isHtmx {
 		// Voor HTMX requests, stuur alleen het foutbericht HTML fragment
 		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(statusCode)
+
+		// Belangrijk: verwijder of wijzig Content-Type header niet na deze regel!
+
+		// Statuscode kan 200 zijn voor HTMX om de swap uit te voeren
+		w.WriteHeader(200) // WIJZIGING: gebruik altijd 200 OK voor HTMX
+
 		errorHTML := fmt.Sprintf(`
             <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
                 %s
             </div>
         `, message)
+
+		fmt.Println("Stuur HTMX error response:", errorHTML)
 		w.Write([]byte(errorHTML))
-	} else {
-		// Voor normale requests, toon de hele pagina opnieuw met een fout
-		// Bereid template data voor
-		data := map[string]interface{}{
-			"CompanyName":   h.getEnvDefault("COMPANY_NAME", "LoginAuth"),
-			"CompanySlogan": h.getEnvDefault("COMPANY_SLOGAN", "A simple authentication system"),
-			"CompanyEmail":  h.getEnvDefault("COMPANY_EMAIL", ""),
-			"CurrentYear":   time.Now().Year(),
-			"Error":         message,
-		}
+		return
+	}
 
-		tmpl, err := template.ParseFiles(
-			"templates/register.html",
-			"templates/partials/footer.html",
-		)
-		if err != nil {
-			http.Error(w, "Error loading template: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+	// Voor normale requests, toon de hele pagina opnieuw met een fout
+	data := map[string]interface{}{
+		"CompanyName":   h.getEnvDefault("COMPANY_NAME", "LoginAuth"),
+		"CompanySlogan": h.getEnvDefault("COMPANY_SLOGAN", "A simple authentication system"),
+		"CompanyEmail":  h.getEnvDefault("COMPANY_EMAIL", ""),
+		"CurrentYear":   time.Now().Year(),
+		"Error":         message,
+	}
 
-		w.WriteHeader(statusCode)
-		if err := tmpl.Execute(w, data); err != nil {
-			http.Error(w, "Error rendering template: "+err.Error(), http.StatusInternalServerError)
-		}
+	fmt.Printf("Rendering register template with error: %s\n", message)
+
+	tmpl, err := template.ParseFiles(
+		"templates/register.html",
+		"templates/partials/footer.html",
+	)
+	if err != nil {
+		http.Error(w, "Error loading template: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(statusCode)
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, "Error rendering template: "+err.Error(), http.StatusInternalServerError)
 	}
 }
