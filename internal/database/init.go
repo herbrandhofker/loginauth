@@ -84,7 +84,7 @@ func createTables(db *sql.DB) error {
 	_, err := db.Exec(`
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
-            username VARCHAR(100) UNIQUE NOT NULL,
+            username VARCHAR(100)  NOT NULL,
             email VARCHAR(255) UNIQUE NOT NULL,
             password_hash VARCHAR(255) NOT NULL,
             google_id VARCHAR(255) UNIQUE,

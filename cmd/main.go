@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -17,6 +19,9 @@ import (
 )
 
 func main() {
+	// Kill eventuele processen die poort 8082 gebruiken
+	killProcessOnPort("8082")
+
 	// Laad .env bestand
 	if err := godotenv.Load(); err != nil {
 		log.Fatalf("Error loading .env file: %v", err)
@@ -74,13 +79,45 @@ func main() {
 	})
 
 	// Start server
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	fmt.Printf("Server listening on port %s...\n", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	port := "8082" // Verander naar een andere poort
+	fmt.Printf("Server starting on http://localhost:%s\n", port)
+	err = http.ListenAndServe(":"+port, nil)
+	if err != nil {
 		log.Fatalf("Server error: %v", err)
+	}
+}
+
+func killProcessOnPort(port string) {
+	fmt.Printf("Controleren of poort %s al in gebruik is...\n", port)
+
+	cmd := exec.Command("cmd", "/c", fmt.Sprintf("netstat -ano | findstr :%s", port))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// Geen proces gevonden of commando mislukt
+		fmt.Println("Geen bestaand proces gevonden op deze poort.")
+		return
+	}
+
+	// Parse output om PID te vinden
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "LISTENING") {
+			fields := strings.Fields(line)
+			if len(fields) >= 5 {
+				pid := fields[4]
+				fmt.Printf("Beëindigen van proces met PID %s op poort %s\n", pid, port)
+				killCmd := exec.Command("taskkill", "/F", "/PID", pid)
+				err := killCmd.Run()
+				if err != nil {
+					fmt.Printf("Kon proces niet beëindigen: %v\n", err)
+				} else {
+					fmt.Printf("Proces succesvol beëindigd\n")
+					// Wacht even om het OS tijd te geven de poort vrij te geven
+					time.Sleep(500 * time.Millisecond)
+				}
+				break
+			}
+		}
 	}
 }
 

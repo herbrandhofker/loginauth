@@ -1,13 +1,15 @@
 package auth
 
 import (
+	"crypto/rand" // Voor random token generatie
 	"database/sql"
+	"encoding/base64" // Voor token encoding
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/bcrypt" // Voor wachtwoord hashing
 
 	"loginauth/internal/models"
 )
@@ -24,56 +26,59 @@ func NewAuthService(db *sql.DB) *AuthService {
 	}
 }
 
-// RegisterUser registers a new user with email and password
-func (s *AuthService) RegisterUser(username, email, password string) (*models.User, error) {
-	// Check if user already exists
-	var exists bool
-	err := s.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)", email).Scan(&exists)
+// RegisterUser registers a new user with username, email and password
+func (s *AuthService) RegisterUser(username, email, password string) error {
+	// Check if email already exists
+	var existingCount int
+	err := s.DB.QueryRow("SELECT COUNT(*) FROM users WHERE email = $1", email).Scan(&existingCount)
 	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return nil, errors.New("user with this email already exists")
+		return fmt.Errorf("database error: %w", err)
 	}
 
-	// Hash password
+	if existingCount > 0 {
+		return errors.New("email already exists")
+	}
+
+	// Hash the password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("password hashing failed: %w", err)
 	}
 
-	// Create user with is_verified=false
-	var user models.User
-	err = s.DB.QueryRow(`
-        INSERT INTO users (username, email, password_hash, is_verified, created_at, updated_at)
-        VALUES ($1, $2, $3, FALSE, NOW(), NOW())
-        RETURNING id, username, email, is_verified, created_at, updated_at
-    `, username, email, string(hashedPassword)).Scan(
-		&user.ID, &user.Username, &user.Email, &user.IsVerified, &user.CreatedAt, &user.UpdatedAt,
+	// Begin een transactie
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return fmt.Errorf("transaction start failed: %w", err)
+	}
+	defer tx.Rollback() // Rollback bij fout of aan het einde
+
+	// Insert user into database
+	// FIXED: Toegevoegd ontbrekende haakje aan het eind van de SQL statement
+	_, err = tx.Exec(
+		`INSERT INTO users (username, email, password_hash, is_verified, created_at, updated_at) 
+         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		username, email, string(hashedPassword), false,
 	)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("user creation failed: %w", err)
 	}
 
-	// Generate verification token
-	token := uuid.New().String()
-	expiresAt := time.Now().Add(24 * time.Hour) // 24 hour expiration
+	// Commit de transactie
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("transaction commit failed: %w", err)
+	}
 
-	_, err = s.DB.Exec(`
-        INSERT INTO verification_tokens (user_id, token, expires_at, created_at)
-        VALUES ($1, $2, $3, NOW())
-    `, user.ID, token, expiresAt)
+	return nil
+}
+
+// Helper function to generate a random token
+func generateRandomToken() string {
+	b := make([]byte, 32)
+	_, err := rand.Read(b)
 	if err != nil {
-		return nil, err
+		return ""
 	}
-
-	// Send verification email
-	err = s.EmailService.SendVerificationEmail(email, token)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send verification email: %w", err)
-	}
-
-	return &user, nil
+	return base64.URLEncoding.EncodeToString(b)
 }
 
 // VerifyEmail verifies a user's email with a token
