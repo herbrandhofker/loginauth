@@ -100,18 +100,22 @@ func (h *AuthHandler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		// Geslaagde registratie - redirect
 		fmt.Println("Registration successful, redirecting to login")
 
-		// URL met email coderen voor veilig doorgeven
-		emailParam := url.QueryEscape(email)
+		// URL parameters aanpassen om de juiste melding te tonen
+		redirectParams := url.Values{}
+		redirectParams.Add("registered", "true")
+		redirectParams.Add("email", url.QueryEscape(email))
+		// Een nieuwe parameter om aan te geven dat verificatie nodig is
+		redirectParams.Add("verification_required", "true")
 
 		// Voor HTMX requests
 		if r.Header.Get("HX-Request") == "true" {
-			w.Header().Set("HX-Redirect", "/login?registered=true&email="+emailParam)
+			w.Header().Set("HX-Redirect", "/login?"+redirectParams.Encode())
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 
 		// Voor reguliere form submits
-		http.Redirect(w, r, "/login?registered=true&email="+emailParam, http.StatusSeeOther)
+		http.Redirect(w, r, "/login?"+redirectParams.Encode(), http.StatusSeeOther)
 	} else {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -120,14 +124,23 @@ func (h *AuthHandler) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 // LoginHandler handles user login
 func (h *AuthHandler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		// Haal email parameter op en decodeer deze
+		encodedEmail := r.URL.Query().Get("email")
+		email, err := url.QueryUnescape(encodedEmail)
+		if err != nil {
+			// Als decoderen mislukt, gebruik de originele waarde
+			email = encodedEmail
+		}
+
 		// Template data met bedrijfsgegevens
 		data := map[string]interface{}{
-			"CompanyName":   h.getEnvDefault("COMPANY_NAME", "LoginAuth"),
-			"CompanySlogan": h.getEnvDefault("COMPANY_SLOGAN", "A simple authentication system"),
-			"CompanyEmail":  h.getEnvDefault("COMPANY_EMAIL", ""),
-			"CurrentYear":   time.Now().Year(),
-			"Registered":    r.URL.Query().Get("registered") == "true",
-			"Email":         r.URL.Query().Get("email"), // Haal email uit URL params
+			"CompanyName":          h.getEnvDefault("COMPANY_NAME", "LoginAuth"),
+			"CompanySlogan":        h.getEnvDefault("COMPANY_SLOGAN", "A simple authentication system"),
+			"CompanyEmail":         h.getEnvDefault("COMPANY_EMAIL", ""),
+			"CurrentYear":          time.Now().Year(),
+			"Registered":           r.URL.Query().Get("registered") == "true",
+			"Email":                email, // Gebruik de gedecodeerde email
+			"VerificationRequired": r.URL.Query().Get("verification_required") == "true",
 		}
 
 		tmpl, err := template.ParseFiles(
