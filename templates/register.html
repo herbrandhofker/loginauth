@@ -147,26 +147,5 @@
         }
       });
     </script>
-
-    <script>
-      // Bestaande script code blijft ongewijzigd
-
-      // Voeg deze HTMX debug listeners toe aan het einde
-      document.body.addEventListener("htmx:beforeRequest", function (evt) {
-        console.log("HTMX Request:", evt.detail);
-      });
-
-      document.body.addEventListener("htmx:afterRequest", function (evt) {
-        console.log("HTMX Response complete:", evt.detail);
-      });
-
-      document.body.addEventListener("htmx:responseError", function (evt) {
-        console.error("HTMX Error:", evt.detail);
-      });
-
-      document.body.addEventListener("htmx:beforeSwap", function (evt) {
-        console.log("HTMX Before Swap:", evt.detail);
-      });
-    </script>
   </body>
 </html>
